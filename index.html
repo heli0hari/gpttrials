@@ -3,15 +3,50 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Shape Morph Lab</title>
+    <title>Polyform Studio</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="hud">
-      <h1>Shape Morph Lab</h1>
-      <p>Middle mouse: rotate · Scroll: morph shape · Left click: add shape · Right click: remove shape</p>
+    <header class="topbar">
+      <div class="date-left">Sat <span></span> 19 January</div>
+      <div class="date-right">2019</div>
+    </header>
+
+    <aside class="panel-left">
+      <p class="section-title">Forms</p>
+      <div class="face-row" id="faceRow"></div>
+
+      <p class="section-title tools">Tools</p>
+      <ul>
+        <li>Render</li>
+        <li class="active">Rotation</li>
+        <li>Texture</li>
+        <li>Polygons</li>
+        <li>Points</li>
+        <li>Intrude</li>
+      </ul>
+    </aside>
+
+    <aside class="panel-right">
+      <p class="section-title">Lighting</p>
+      <div class="light-grid">
+        <div class="active">Spot</div>
+        <div>Area</div>
+        <div>Target</div>
+        <div>Sun</div>
+      </div>
+      <p class="meter-label">Brightness</p>
+      <div class="meter"><span style="width: 62%"></span></div>
+      <p class="meter-label">Shadow Density</p>
+      <div class="meter"><span style="width: 34%"></span></div>
+    </aside>
+
+    <main class="center-readout">
+      <p>Rotation</p>
+      <h2 id="rotationValue">0°</h2>
       <p id="status"></p>
-    </div>
+    </main>
+
     <canvas id="app"></canvas>
     <script type="module" src="main.js"></script>
   </body>

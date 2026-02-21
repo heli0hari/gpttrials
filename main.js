@@ -1,91 +1,69 @@
 const canvas = document.querySelector('#app');
 const statusEl = document.querySelector('#status');
+const faceRow = document.querySelector('#faceRow');
+const rotationValueEl = document.querySelector('#rotationValue');
 const ctx = canvas.getContext('2d');
 
-const PHI = (1 + Math.sqrt(5)) / 2;
-const POINT_COUNT = 900;
-const SPACING = 2.8;
-const SHAPE_NAMES = ['Cube', 'Octahedron', 'Dodecahedron', 'Icosahedron'];
+const FACE_COUNTS = Array.from({ length: 10 }, (_, i) => i + 3);
+const POINT_COUNT = 1200;
+const SCALE = 1.45;
 
 let width = 0;
 let height = 0;
 let dpr = 1;
-let shapeCount = 1;
 
 const camera = {
-  yaw: 0.55,
-  pitch: 0.45,
-  distance: 7.5,
-  focal: 700
+  yaw: 0.62,
+  pitch: 0.35,
+  distance: 7.8,
+  focal: 860
 };
 
-const rotation = {
+const interaction = {
   dragging: false,
-  lastX: 0,
-  lastY: 0
+  x: 0,
+  y: 0
 };
 
 const morph = {
-  current: 0,
-  target: 0,
+  current: 1,
+  target: 1,
   t: 1
 };
 
-const planeSets = {
-  cube: [
-    [1, 0, 0],
-    [0, 1, 0],
-    [0, 0, 1]
-  ],
-  octahedron: [
-    [1, 1, 1],
-    [1, 1, -1],
-    [1, -1, 1],
-    [-1, 1, 1]
-  ].map(normalize),
-  dodecahedron: [
-    [0, 1, PHI],
-    [0, 1, -PHI],
-    [1, PHI, 0],
-    [1, -PHI, 0],
-    [PHI, 0, 1],
-    [PHI, 0, -1]
-  ].map(normalize),
-  icosahedron: [
-    [1, 1, 1],
-    [0, 1 / PHI, PHI],
-    [1 / PHI, PHI, 0],
-    [PHI, 0, 1 / PHI],
-    [0, 1 / PHI, -PHI],
-    [1 / PHI, -PHI, 0],
-    [PHI, 0, -1 / PHI]
-  ].map(normalize)
-};
+const pointDirs = Array.from({ length: POINT_COUNT }, (_, i) => fibonacciDirection(i, POINT_COUNT));
+const phaseJitter = Float32Array.from({ length: POINT_COUNT }, () => Math.random() * Math.PI * 2);
+const shapes = FACE_COUNTS.map((faces) => buildShape(faces));
 
-const shapeClouds = [
-  buildPointCloud(planeSets.cube, 1.25),
-  buildPointCloud(planeSets.octahedron, 1.65),
-  buildPointCloud(planeSets.dodecahedron, 1.85),
-  buildPointCloud(planeSets.icosahedron, 1.75)
-];
+function buildShape(faceCount) {
+  const normals = distributedNormals(faceCount);
+  const points = new Float32Array(POINT_COUNT * 3);
+
+  for (let i = 0; i < POINT_COUNT; i++) {
+    const dir = pointDirs[i];
+    const t = supportDistance(dir, normals, 1.2);
+    points[i * 3] = dir[0] * t * SCALE;
+    points[i * 3 + 1] = dir[1] * t * SCALE;
+    points[i * 3 + 2] = dir[2] * t * SCALE;
+  }
+
+  return points;
+}
+
+function distributedNormals(count) {
+  const result = [];
+  for (let i = 0; i < count; i++) {
+    const y = 1 - (2 * i + 1) / count;
+    const r = Math.sqrt(Math.max(0, 1 - y * y));
+    const theta = i * 2.3999632297;
+    result.push(normalize([Math.cos(theta) * r, y, Math.sin(theta) * r]));
+  }
+  return result;
+}
 
 function normalize(v) {
   const len = Math.hypot(v[0], v[1], v[2]) || 1;
   return [v[0] / len, v[1] / len, v[2] / len];
-}
-
-function buildPointCloud(normals, planeDistance) {
-  const points = new Float32Array(POINT_COUNT * 3);
-
-  for (let i = 0; i < POINT_COUNT; i++) {
-    const dir = fibonacciDirection(i, POINT_COUNT);
-    const t = supportDistance(dir, normals, planeDistance);
-    points[i * 3] = dir[0] * t;
-    points[i * 3 + 1] = dir[1] * t;
-    points[i * 3 + 2] = dir[2] * t;
-  }
-
-  return points;
 }
 
 function fibonacciDirection(i, n) {
@@ -98,12 +76,10 @@ function fibonacciDirection(i, n) {
 function supportDistance(dir, normals, h) {
   let minT = Infinity;
   for (const n of normals) {
-    const d = Math.abs(dir[0] * n[0] + dir[1] * n[1] + dir[2] * n[2]);
-    if (d > 1e-6) {
-      minT = Math.min(minT, h / d);
-    }
+    const d = Math.max(1e-4, dir[0] * n[0] + dir[1] * n[1] + dir[2] * n[2]);
+    minT = Math.min(minT, h / d);
   }
-  return Number.isFinite(minT) ? minT : 0;
+  return Math.max(0.1, minT);
 }
 
 function resize() {
@@ -117,25 +93,17 @@ function resize() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
-function setStatus(text) {
-  statusEl.textContent = text;
-}
-
-function shapeLabel(index) {
-  return SHAPE_NAMES[index] ?? 'Shape';
-}
-
 function smoothstep(t) {
   return t * t * (3 - 2 * t);
 }
 
 function morphPoint(i, out) {
-  const from = shapeClouds[morph.current];
-  const to = shapeClouds[morph.target];
+  const a = shapes[morph.current];
+  const b = shapes[morph.target];
   const mt = smoothstep(morph.t);
-  out[0] = from[i] + (to[i] - from[i]) * mt;
-  out[1] = from[i + 1] + (to[i + 1] - from[i + 1]) * mt;
-  out[2] = from[i + 2] + (to[i + 2] - from[i + 2]) * mt;
+  out[0] = a[i] + (b[i] - a[i]) * mt;
+  out[1] = a[i + 1] + (b[i + 1] - a[i + 1]) * mt;
+  out[2] = a[i + 2] + (b[i + 2] - a[i + 2]) * mt;
 }
 
 function rotatePoint(x, y, z) {
@@ -157,105 +125,140 @@ function project(x, y, z) {
   const scale = camera.focal / depth;
   return {
     x: x * scale + width * 0.5,
-    y: -y * scale + height * 0.56,
-    depth,
-    scale
+    y: -y * scale + height * 0.52,
+    scale,
+    z
   };
 }
 
-function draw() {
-  ctx.clearRect(0, 0, width, height);
-
-  const gradient = ctx.createRadialGradient(width * 0.5, height * 0.3, 20, width * 0.5, height * 0.6, width * 0.9);
-  gradient.addColorStop(0, '#111827');
-  gradient.addColorStop(1, '#030712');
-  ctx.fillStyle = gradient;
+function drawBackground(time) {
+  const bg = ctx.createLinearGradient(0, 0, 0, height);
+  bg.addColorStop(0, '#b4b8bf');
+  bg.addColorStop(1, '#a8afb8');
+  ctx.fillStyle = bg;
   ctx.fillRect(0, 0, width, height);
+
+  ctx.strokeStyle = 'rgba(65, 72, 82, 0.12)';
+  ctx.lineWidth = 1;
+  const gridSpacing = 68;
+  const shift = (time * 16) % gridSpacing;
+
+  for (let x = -gridSpacing; x < width + gridSpacing; x += gridSpacing) {
+    ctx.beginPath();
+    ctx.moveTo(x + shift, height * 0.5);
+    ctx.lineTo(x - 90 + shift, height);
+    ctx.stroke();
+  }
+
+  for (let y = height * 0.56; y < height + gridSpacing; y += gridSpacing) {
+    ctx.beginPath();
+    ctx.moveTo(0, y + shift * 0.35);
+    ctx.lineTo(width, y + shift * 0.35);
+    ctx.stroke();
+  }
+}
+
+function draw(timeSec) {
+  drawBackground(timeSec);
 
   const drawList = [];
   const tmp = [0, 0, 0];
 
-  for (let s = 0; s < shapeCount; s++) {
-    const offsetX = (s - (shapeCount - 1) / 2) * SPACING;
-    for (let i = 0; i < POINT_COUNT * 3; i += 3) {
-      morphPoint(i, tmp);
-      const r = rotatePoint(tmp[0] + offsetX, tmp[1], tmp[2]);
-      const p = project(r[0], r[1], r[2]);
-      if (!p) continue;
-      drawList.push({
-        x: p.x,
-        y: p.y,
-        z: r[2],
-        radius: Math.max(1.2, 2.8 * p.scale / 140),
-        hue: ((s * 35 + i * 0.03) % 360 + 360) % 360,
-        light: Math.max(42, Math.min(78, 58 + r[1] * 5 - r[2] * 3))
-      });
-    }
+  for (let i = 0; i < POINT_COUNT * 3; i += 3) {
+    morphPoint(i, tmp);
+
+    const pIdx = i / 3;
+    const phase = timeSec * 1.8 + phaseJitter[pIdx];
+    const pulse = 1 + Math.sin(phase) * 0.065;
+    const wobble = Math.sin(phase * 0.57) * 0.05;
+
+    const r = rotatePoint(tmp[0] * pulse, tmp[1] * (pulse + wobble), tmp[2] * pulse);
+    const p = project(r[0], r[1], r[2]);
+    if (!p) continue;
+
+    drawList.push({
+      x: p.x,
+      y: p.y,
+      z: p.z,
+      radius: Math.max(1.5, (2.8 * p.scale) / 150),
+      shade: 18 + Math.max(0, 45 - p.z * 7)
+    });
   }
 
   drawList.sort((a, b) => a.z - b.z);
-
   for (const p of drawList) {
     ctx.beginPath();
     ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-    ctx.fillStyle = `hsla(${p.hue}, 88%, ${p.light}%, 0.86)`;
+    ctx.fillStyle = `rgba(9, 14, 21, ${Math.min(0.86, 0.2 + p.shade / 100)})`;
     ctx.fill();
   }
+
+  const currentAngle = ((camera.yaw % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+  rotationValueEl.textContent = `${Math.round((currentAngle * 180) / Math.PI)}°`;
 }
 
-function animate() {
+function renderFacePills() {
+  faceRow.innerHTML = FACE_COUNTS.map((face, index) => {
+    const active = index === morph.target ? 'active' : '';
+    return `<span class="face-pill ${active}">${face}</span>`;
+  }).join('');
+}
+
+function updateStatus(prefix = 'Active') {
+  statusEl.textContent = `${prefix}: ${FACE_COUNTS[morph.target]} faces · Scroll to morph`;
+  renderFacePills();
+}
+
+function animate(now) {
   if (morph.t < 1) {
-    morph.t = Math.min(1, morph.t + 0.03);
+    morph.t = Math.min(1, morph.t + 0.024);
     if (morph.t === 1) {
-      setStatus(`Shapes: ${shapeCount} | Active form: ${shapeLabel(morph.target)}`);
+      updateStatus('Active');
     }
   }
-  draw();
+
+  draw(now * 0.001);
   requestAnimationFrame(animate);
 }
 
 window.addEventListener('resize', resize);
 window.addEventListener('contextmenu', (event) => event.preventDefault());
+
 window.addEventListener('wheel', (event) => {
   event.preventDefault();
   const direction = Math.sign(event.deltaY);
   if (!direction) return;
+
   morph.current = morph.target;
-  morph.target = (morph.target + (direction > 0 ? 1 : -1) + shapeClouds.length) % shapeClouds.length;
+  morph.target = (morph.target + (direction > 0 ? 1 : -1) + FACE_COUNTS.length) % FACE_COUNTS.length;
   morph.t = 0;
-  setStatus(`Shapes: ${shapeCount} | Morphing: ${shapeLabel(morph.current)} → ${shapeLabel(morph.target)}`);
+  updateStatus('Morphing');
 }, { passive: false });
 
 window.addEventListener('mousedown', (event) => {
-  if (event.button === 1) {
-    rotation.dragging = true;
-    rotation.lastX = event.clientX;
-    rotation.lastY = event.clientY;
-  } else if (event.button === 0) {
-    shapeCount = Math.min(12, shapeCount + 1);
-    setStatus(`Shapes: ${shapeCount} | Active form: ${shapeLabel(morph.target)}`);
-  } else if (event.button === 2) {
-    shapeCount = Math.max(1, shapeCount - 1);
-    setStatus(`Shapes: ${shapeCount} | Active form: ${shapeLabel(morph.target)}`);
-  }
+  interaction.dragging = true;
+  interaction.x = event.clientX;
+  interaction.y = event.clientY;
+});
+
+window.addEventListener('mouseup', () => {
+  interaction.dragging = false;
+});
+
+window.addEventListener('mouseleave', () => {
+  interaction.dragging = false;
 });
 
 window.addEventListener('mousemove', (event) => {
-  if (!rotation.dragging) return;
-  const dx = event.clientX - rotation.lastX;
-  const dy = event.clientY - rotation.lastY;
-  rotation.lastX = event.clientX;
-  rotation.lastY = event.clientY;
+  if (!interaction.dragging) return;
+  const dx = event.clientX - interaction.x;
+  const dy = event.clientY - interaction.y;
+  interaction.x = event.clientX;
+  interaction.y = event.clientY;
   camera.yaw += dx * 0.008;
   camera.pitch = Math.max(-1.35, Math.min(1.35, camera.pitch + dy * 0.008));
 });
 
-window.addEventListener('mouseup', (event) => {
-  if (event.button === 1) {
-    rotation.dragging = false;
-  }
-});
-
 resize();
-setStatus(`Shapes: ${shapeCount} | Active form: ${shapeLabel(morph.target)}`);
-animate();
+updateStatus('Active');
+requestAnimationFrame(animate);
